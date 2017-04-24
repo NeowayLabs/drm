@@ -12,17 +12,26 @@ import (
 // Driver version information.
 //
 // drm.GetVersion() and drm.SetVersion().
-type Version struct {
-	Major   int32
-	Minor   int32
-	Patch   int32
-	Namelen int64
-	Name    unsafe.Pointer
-	Datelen int64
-	Date    unsafe.Pointer
-	Desclen int64
-	Desc    unsafe.Pointer
-}
+type (
+	version struct {
+		Major   int32
+		Minor   int32
+		Patch   int32
+		namelen int64
+		name    uintptr
+		datelen int64
+		date    uintptr
+		desclen int64
+		desc    uintptr
+	}
+
+	Version struct {
+		version
+		Name string
+		Date string
+		Desc string
+	}
+)
 
 const (
 	Primary = iota
@@ -31,16 +40,16 @@ const (
 )
 
 var (
-	v               Version
-	IOCTLVersion, _ = ioctl.NewCode(ioctl.Read, uint16(unsafe.Sizeof(v)), 'd', 0)
+	IOCTLVersion, _ = ioctl.NewCode(ioctl.Read,
+		uint16(unsafe.Sizeof(version{})), 'd', 0)
 )
 
-func Available() (*Version, error) {
+func Available() (Version, error) {
 	f, err := openMinor(0, Primary)
 	if err != nil {
 		// handle backward linux compat?
 		// check /proc/dri/0 ?
-		return nil, err
+		return Version{}, err
 	}
 	defer f.Close()
 	return GetVersion(f)
@@ -67,32 +76,47 @@ func openMinor(minor int, typ int) (*os.File, error) {
 	return os.OpenFile(devname, os.O_RDWR, 0)
 }
 
-func GetVersion(file *os.File) (*Version, error) {
-	version := &Version{}
+func GetVersion(file *os.File) (Version, error) {
+	var date []byte
+	var name []byte
+	var desc []byte
+
+	version := &version{}
 
 	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLVersion),
 		uintptr(unsafe.Pointer(version)))
 	if err != nil {
-		return nil, err
+		return Version{}, err
 	}
-	if version.Namelen > 0 {
-		name := make([]byte, version.Namelen+1)
-		version.Name = unsafe.Pointer(&name[0])
+	if version.namelen > 0 {
+		name = make([]byte, version.namelen+1)
+		version.name = uintptr(unsafe.Pointer(&name[0]))
 	}
-	if version.Datelen > 0 {
-		var date []byte = make([]byte, version.Datelen+1)
-
-		version.Date = unsafe.Pointer(&date[0])
+	if version.datelen > 0 {
+		date = make([]byte, version.datelen+1)
+		version.date = uintptr(unsafe.Pointer(&date[0]))
 	}
-	if version.Desclen > 0 {
-		var desc []byte = make([]byte, version.Desclen+1)
-		version.Desc = unsafe.Pointer(&desc[0])
+	if version.desclen > 0 {
+		desc = make([]byte, version.desclen+1)
+		version.desc = uintptr(unsafe.Pointer(&desc[0]))
 	}
 	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLVersion),
 		uintptr(unsafe.Pointer(version)))
 	if err != nil {
-		return nil, err
+		return Version{}, err
 	}
 
-	return version, nil
+	// remove C null byte at end
+	name = name[:version.namelen]
+	date = date[:version.datelen]
+	desc = desc[:version.desclen]
+
+	v := Version{
+		version: *version,
+		Name:    string(name),
+		Date:    string(date),
+		Desc:    string(desc),
+	}
+
+	return v, nil
 }
