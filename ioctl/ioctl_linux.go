@@ -43,21 +43,21 @@ const (
 	Read  = uint8(0x2)
 )
 
-func NewCode(typ uint8, sz uint16, uniq, fn uint8) (uint32, error) {
+func NewCode(typ uint8, sz uint16, uniq, fn uint8) uint32 {
 	var code uint32
 	if typ > Write|Read {
-		return 0, fmt.Errorf("invalid ioctl code value: %d\n", typ)
+		panic(fmt.Errorf("invalid ioctl code value: %d\n", typ))
 	}
 
 	if sz > 2<<14 {
-		return 0, fmt.Errorf("invalid ioctl size value: %d\n", sz)
+		panic(fmt.Errorf("invalid ioctl size value: %d\n", sz))
 	}
 
 	code = code | (uint32(typ) << 30)
 	code = code | (uint32(sz) << 16) // sz has 14bits
 	code = code | (uint32(uniq) << 8)
 	code = code | uint32(fn)
-	return code, nil
+	return code
 }
 
 func Do(fd, cmd, ptr uintptr) error {

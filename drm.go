@@ -8,10 +8,6 @@ import (
 	"github.com/tiago4orion/drm/ioctl"
 )
 
-//
-// Driver version information.
-//
-// drm.GetVersion() and drm.SetVersion().
 type (
 	version struct {
 		Major   int32
@@ -25,11 +21,33 @@ type (
 		desc    uintptr
 	}
 
+	modeRes struct {
+		fbIdPtr              uintptr
+		crtcIdPtr            uintptr
+		connectorIdPtr       uintptr
+		encoderIdPtr         uintptr
+		CountFbs             uint32
+		CountCrtcs           uint32
+		CountConnectors      uint32
+		CountEncoders        uint32
+		MinWidth, MaxWidth   uint32
+		MinHeight, MaxHeight uint32
+	}
+
+	// Version of DRM driver
 	Version struct {
 		version
-		Name string
+		Name string // Name of the driver (eg.: i915)
 		Date string
 		Desc string
+	}
+
+	ModeRes struct {
+		modeRes
+		Fbs        []uint32
+		Crtcs      []uint32
+		Connectors []uint32
+		Encoders   []uint32
 	}
 )
 
@@ -37,11 +55,6 @@ const (
 	Primary = iota
 	Control
 	Render
-)
-
-var (
-	IOCTLVersion, _ = ioctl.NewCode(ioctl.Read,
-		uint16(unsafe.Sizeof(version{})), 'd', 0)
 )
 
 func Available() (Version, error) {
@@ -119,4 +132,50 @@ func GetVersion(file *os.File) (Version, error) {
 	}
 
 	return v, nil
+}
+
+func ModeResources(file *os.File) (*ModeRes, error) {
+	mres := &modeRes{}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeResources),
+		uintptr(unsafe.Pointer(mres)))
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		fbids, crtcids, connectorids, encoderids []uint32
+	)
+
+	if mres.CountFbs > 0 {
+		fbids = make([]uint32, mres.CountFbs)
+		mres.fbIdPtr = uintptr(unsafe.Pointer(&fbids[0]))
+	}
+	if mres.CountCrtcs > 0 {
+		crtcids = make([]uint32, mres.CountCrtcs)
+		mres.crtcIdPtr = uintptr(unsafe.Pointer(&crtcids[0]))
+	}
+	if mres.CountEncoders > 0 {
+		encoderids = make([]uint32, mres.CountEncoders)
+		mres.encoderIdPtr = uintptr(unsafe.Pointer(&encoderids[0]))
+	}
+	if mres.CountConnectors > 0 {
+		connectorids = make([]uint32, mres.CountConnectors)
+		mres.connectorIdPtr = uintptr(unsafe.Pointer(&connectorids[0]))
+	}
+
+	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeResources),
+		uintptr(unsafe.Pointer(mres)))
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(i4k): handle hotplugging in-between the ioctls above
+
+	return &ModeRes{
+		modeRes:    *mres,
+		Fbs:        fbids,
+		Crtcs:      crtcids,
+		Encoders:   encoderids,
+		Connectors: connectorids,
+	}, nil
 }
