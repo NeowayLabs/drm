@@ -1,9 +1,13 @@
-package drm
+package drm_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/tiago4orion/drm"
+)
 
 func TestDRIOpen(t *testing.T) {
-	file, err := openMinor(0, Primary)
+	file, err := drm.OpenCard(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -11,7 +15,7 @@ func TestDRIOpen(t *testing.T) {
 }
 
 func TestAvailable(t *testing.T) {
-	v, err := Available()
+	v, err := drm.Available()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,12 +31,12 @@ func TestAvailable(t *testing.T) {
 }
 
 func TestModeRes(t *testing.T) {
-	file, err := openMinor(0, Primary)
+	file, err := drm.OpenCard(0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	mres, err := ModeResources(file)
+	mres, err := drm.ModeResources(file)
 	if err != nil {
 		t.Error(err)
 		return

@@ -52,13 +52,11 @@ type (
 )
 
 const (
-	Primary = iota
-	Control
-	Render
+	driPath = "/dev/dri"
 )
 
 func Available() (Version, error) {
-	f, err := openMinor(0, Primary)
+	f, err := OpenCard(0)
 	if err != nil {
 		// handle backward linux compat?
 		// check /proc/dri/0 ?
@@ -68,25 +66,20 @@ func Available() (Version, error) {
 	return GetVersion(f)
 }
 
-func openMinor(minor int, typ int) (*os.File, error) {
-	var (
-		devname string
-		devfmt  string
-	)
+func OpenCard(n int) (*os.File, error) {
+	return open(fmt.Sprintf("%s/card%d", driPath, n))
+}
 
-	switch typ {
-	case Primary:
-		devfmt = "%s/card%d"
-	case Control:
-		devfmt = "%s/controlD%d"
-	case Render:
-		devfmt = "%s/renderD%d"
-	default:
-		return nil, fmt.Errorf("invalid DRM type: %d", typ)
-	}
+func OpenControlDev(n int) (*os.File, error) {
+	return open(fmt.Sprintf("%s/controlD%d", driPath, n))
+}
 
-	devname = fmt.Sprintf(devfmt, "/dev/dri", minor)
-	return os.OpenFile(devname, os.O_RDWR, 0)
+func OpenRenderDev(n int) (*os.File, error) {
+	return open(fmt.Sprintf("%s/renderD%d", driPath, n))
+}
+
+func open(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDWR, 0)
 }
 
 func GetVersion(file *os.File) (Version, error) {
