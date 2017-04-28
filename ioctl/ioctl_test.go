@@ -10,10 +10,7 @@ func getbits(n uint32) string {
 }
 
 func TestNewCode(t *testing.T) {
-	code, err := NewCode(Read, 0x218, 'r', 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	code := NewCode(Read, 0x218, 'r', 1)
 	expected := uint32(0x82187201)
 	if code != expected {
 		t.Errorf("Expected %s but got %s", getbits(expected),
