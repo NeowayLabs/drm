@@ -22,6 +22,8 @@ const (
 	CapPrime
 	CapTimestampMonotonic
 	CapAsyncPageFlip
+	CapCursorWidth
+	CapCursorHeight
 
 	CapAddFB2Modifiers = 0x10
 )

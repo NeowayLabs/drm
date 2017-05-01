@@ -11,7 +11,7 @@ import (
 type (
 	cardDetail struct {
 		version      drm.Version
-		capabilities map[uint64]bool
+		capabilities map[uint64]uint64
 	}
 )
 
@@ -27,8 +27,18 @@ var (
 				Desc:  "i915",
 				Date:  "20160425",
 			},
-			capabilities: map[uint64]bool{
-				drm.CapDumbBuffer: true,
+			capabilities: map[uint64]uint64{
+				drm.CapDumbBuffer:         1,
+				drm.CapVBlankHighCRTC:     1,
+				drm.CapDumbPreferredDepth: 24,
+				drm.CapDumbPreferShadow:   1,
+				drm.CapPrime:              3,
+				drm.CapTimestampMonotonic: 1,
+				drm.CapAsyncPageFlip:      0,
+				drm.CapCursorWidth:        256,
+				drm.CapCursorHeight:       256,
+
+				drm.CapAddFB2Modifiers: 1,
 			},
 		},
 	}
