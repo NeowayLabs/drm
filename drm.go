@@ -37,9 +37,11 @@ type (
 	// Version of DRM driver
 	Version struct {
 		version
-		Name string // Name of the driver (eg.: i915)
-		Date string
-		Desc string
+
+		Major, Minor, Patch int32
+		Name                string // Name of the driver (eg.: i915)
+		Date                string
+		Desc                string
 	}
 
 	ModeRes struct {
@@ -83,21 +85,22 @@ func open(path string) (*os.File, error) {
 }
 
 func GetVersion(file *os.File) (Version, error) {
-	var date []byte
-	var name []byte
-	var desc []byte
+	var (
+		name, date, desc []byte
+	)
 
 	version := &version{}
-
 	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLVersion),
 		uintptr(unsafe.Pointer(version)))
 	if err != nil {
 		return Version{}, err
 	}
+
 	if version.namelen > 0 {
 		name = make([]byte, version.namelen+1)
 		version.name = uintptr(unsafe.Pointer(&name[0]))
 	}
+
 	if version.datelen > 0 {
 		date = make([]byte, version.datelen+1)
 		version.date = uintptr(unsafe.Pointer(&date[0]))
@@ -106,6 +109,7 @@ func GetVersion(file *os.File) (Version, error) {
 		desc = make([]byte, version.desclen+1)
 		version.desc = uintptr(unsafe.Pointer(&desc[0]))
 	}
+
 	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLVersion),
 		uintptr(unsafe.Pointer(version)))
 	if err != nil {
@@ -119,6 +123,9 @@ func GetVersion(file *os.File) (Version, error) {
 
 	v := Version{
 		version: *version,
+		Major:   version.Major,
+		Minor:   version.Minor,
+		Patch:   version.Patch,
 		Name:    string(name),
 		Date:    string(date),
 		Desc:    string(desc),
