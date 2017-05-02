@@ -5,7 +5,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
+	"time"
 
 	"launchpad.net/gommap"
 
@@ -74,12 +76,18 @@ func setupDev(file *os.File, res *mode.Resources, conn *mode.Connector, dev *mod
 	dev.width = conn.Modes[0].Hdisplay
 	dev.height = conn.Modes[0].Vdisplay
 
-	log.Println("mode for connector %u is %ux%u\n", conn.ID, dev.width, dev.height)
+	log.Printf("mode for connector %d is %dx%d\n", conn.ID, dev.width, dev.height)
 
 	err := findCrtc(file, res, conn, dev)
 	if err != nil {
 		return false, fmt.Errorf("no valid crtc for connector %u: %s", conn.ID, err.Error())
 	}
+
+	err = createFramebuffer(file, dev)
+	if err != nil {
+		return false, err
+	}
+
 	return true, nil
 }
 
@@ -165,15 +173,71 @@ func createFramebuffer(file *os.File, dev *modeset) error {
 		return fmt.Errorf("Cannot create dumb buffer: %s", err.Error())
 	}
 	dev.fb = fbID
-	mmap, err := gommap.Map(file.Fd(), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
+
+	offset, err := mode.MapDumb(file, dev.handle)
+	if err != nil {
+		return err
+	}
+
+	mmap, err := gommap.MapAt(0, uintptr(file.Fd()), int64(offset), int64(dev.size), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
 	if err != nil {
 		return fmt.Errorf("Failed to mmap framebuffer: %s", err.Error())
 	}
 	for i := uint64(0); i < dev.size; i++ {
 		mmap[i] = 0
 	}
+	dev.data = mmap
 	return nil
 }
+
+func draw() {
+	var (
+		r, g, b       uint8
+		rUp, gUp, bUp = true, true, true
+		off           uint32
+	)
+
+	rand.Seed(int64(time.Now().Unix()))
+	r = uint8(rand.Intn(256))
+	g = uint8(rand.Intn(256))
+	b = uint8(rand.Intn(256))
+
+	for i := 0; i < 50; i++ {
+		r = nextColor(&rUp, r, 20)
+		g = nextColor(&gUp, g, 10)
+		b = nextColor(&bUp, b, 5)
+
+		for j := 0; j < len(modesetlist); j++ {
+			iter := modesetlist[j]
+			for k := uint16(0); k < iter.height; k++ {
+				for s := uint16(0); s < iter.width; s++ {
+					off = (iter.stride * uint32(k)) + (uint32(s) * 4)
+					iter.data[off] = (r << 16) | (g << 8) | b
+				}
+			}
+		}
+
+		time.Sleep(1000000000)
+	}
+}
+
+func nextColor(up *bool, cur uint8, mod int) uint8 {
+	var next uint8
+
+	if *up {
+		next = cur + 1
+	} else {
+		next = cur - 1
+	}
+	next = next * uint8(rand.Intn(mod))
+	if (*up && next < cur) || (!*up && next > cur) {
+		*up = !*up
+		next = cur
+	}
+	return next
+}
+
+func cleanup() {}
 
 func main() {
 	file, err := drm.OpenCard(0)
@@ -198,13 +262,18 @@ func main() {
 		mset := modesetlist[i]
 		mset.savedCtrc, err = mode.GetCrtc(file, mset.crtc)
 		if err != nil {
-			log.Printf("[error] 1- Cannot set CRTC for connector %d", mset.conn)
+			log.Printf("[error] Cannot get CRTC for connector %d: %s", mset.conn, err.Error())
 			return
 		}
+		fmt.Printf("crtc = %d, conn = %d, mode = %#v\n", mset.crtc, mset.conn, mset.mode)
+		fmt.Printf("fb = %d\n", mset.fb)
 		err = mode.SetCrtc(file, mset.crtc, mset.fb, 0, 0, &mset.conn, 1, &mset.mode)
 		if err != nil {
-			log.Printf("[error] Cannot set CRTC for connector %d", mset.conn)
+			log.Printf("[error] Cannot set CRTC for connector %d: %s", mset.conn, err.Error())
 			return
 		}
 	}
+
+	draw()
+	cleanup()
 }
