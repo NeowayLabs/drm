@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/tiago4orion/drm"
+	"github.com/tiago4orion/drm/mode"
 )
 
 func TestDRIOpen(t *testing.T) {
@@ -39,7 +40,7 @@ func TestModeRes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	mres, err := drm.ModeResources(file)
+	mres, err := mode.GetResources(file)
 	if err != nil {
 		t.Error(err)
 		return

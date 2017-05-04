@@ -1,6 +1,7 @@
 package drm
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"unsafe"
@@ -100,14 +101,22 @@ func GetVersion(file *os.File) (Version, error) {
 	date = date[:version.datelen]
 	desc = desc[:version.desclen]
 
+	nozero := func(r rune) bool {
+		if r == 0 {
+			return true
+		} else {
+			return false
+		}
+	}
+
 	v := Version{
 		version: *version,
 		Major:   version.Major,
 		Minor:   version.Minor,
 		Patch:   version.Patch,
-		Name:    string(name),
-		Date:    string(date),
-		Desc:    string(desc),
+		Name:    string(bytes.TrimFunc(name, nozero)),
+		Date:    string(bytes.TrimFunc(date, nozero)),
+		Desc:    string(bytes.TrimFunc(desc, nozero)),
 	}
 
 	return v, nil
