@@ -14,14 +14,17 @@ func TestDRIOpen(t *testing.T) {
 	file.Close()
 }
 
-func TestAvailable(t *testing.T) {
+func TestAvailableCard(t *testing.T) {
 	v, err := drm.Available()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v.Major == 0 && v.Minor == 0 && v.Patch == 0 {
-		t.Fatalf("Doesn't got driver version: %d.%d.%d",
-			v.Major, v.Minor, v.Patch)
+		t.Fatalf("failed to get driver version: %#v", v)
+	}
+	if v.Major != cardInfo.version.Major && v.Minor != cardInfo.version.Minor &&
+		v.Patch != cardInfo.version.Patch {
+		t.Logf("Unknow driver version: %d.%d.%d", v.Major, v.Minor, v.Patch)
 	}
 
 	t.Logf("Driver name: %s", v.Name)
