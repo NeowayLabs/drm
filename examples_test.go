@@ -6,7 +6,7 @@ import (
 	"github.com/NeowayLabs/drm"
 )
 
-func ExampleHasDumbBuffers() {
+func ExampleHasDumbBuffer() {
 	// This example shows how to test if your graphics card
 	// supports 'dumb buffers' capability. With this capability
 	// you can create simple memory-mapped buffers without any
