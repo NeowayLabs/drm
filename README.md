@@ -1,3 +1,5 @@
+[![GoDoc](https://godoc.org/github.com/NeowayLabs/drm?status.svg)](https://godoc.org/github.com/NeowayLabs/drm) 
+
 # drm
 
 The _Direct Rendering Manager_ (DRM) is a kernel framework to manage _Graphical Processing Units_ (GPU).
