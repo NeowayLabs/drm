@@ -26,3 +26,12 @@ func ExampleHasDumbBuffer() {
 
 	// Output: ok
 }
+
+func ExampleListDevices() {
+	// Shows how to enumerate the available dri devices
+	for _, dev := range drm.ListDevices() {
+		fmt.Printf("Driver name: %s\n", dev.Name)
+	}
+
+	// Output: Driver name: i915
+}
