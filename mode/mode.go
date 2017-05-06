@@ -72,7 +72,7 @@ type (
 
 		Flags uint32
 		Type  uint32
-		Name  [32]uint8 // DisplayModeLen
+		Name  [DisplayModeLen]uint8
 	}
 
 	Resources struct {
