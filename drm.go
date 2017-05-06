@@ -3,7 +3,10 @@ package drm
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"strconv"
+	"strings"
 	"unsafe"
 
 	"github.com/NeowayLabs/drm/ioctl"
@@ -121,4 +124,38 @@ func GetVersion(file *os.File) (Version, error) {
 	}
 
 	return v, nil
+}
+
+func ListDevices() []Version {
+	var devices []Version
+	files, err := ioutil.ReadDir(driPath)
+	if err != nil {
+		return devices
+	}
+
+	for _, finfo := range files {
+		name := finfo.Name()
+		if len(name) <= 4 ||
+			!strings.HasPrefix(name, "card") {
+			continue
+		}
+
+		idstr := name[4:]
+		id, err := strconv.Atoi(idstr)
+		if err != nil {
+			continue
+		}
+
+		devfile, err := OpenCard(id)
+		if err != nil {
+			continue
+		}
+		dev, err := GetVersion(devfile)
+		if err != nil {
+			continue
+		}
+		devices = append(devices, dev)
+	}
+
+	return devices
 }
