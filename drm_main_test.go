@@ -47,13 +47,13 @@ var (
 
 func TestMain(m *testing.M) {
 	cards[""] = cards["i915"] // i915 bug in 4.8 kernel?
+
 	if errCard != nil {
 		fmt.Fprintf(os.Stderr, "No graphics card available to test")
 		os.Exit(1)
 	}
 	if _, ok := cards[card.Name]; !ok {
-		fmt.Printf("Length: %d, content: '%s'\n", len(card.Name), card.Name)
-		fmt.Fprintf(os.Stderr, "No tests for card '%s'\n", card.Name)
+		fmt.Fprintf(os.Stderr, "No tests for card %s", card.Name)
 		os.Exit(1)
 	}
 	cardInfo = cards[card.Name]

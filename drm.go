@@ -114,6 +114,7 @@ func GetVersion(file *os.File) (Version, error) {
 		Major:   version.Major,
 		Minor:   version.Minor,
 		Patch:   version.Patch,
+
 		Name:    string(bytes.TrimFunc(name, nozero)),
 		Date:    string(bytes.TrimFunc(date, nozero)),
 		Desc:    string(bytes.TrimFunc(desc, nozero)),
