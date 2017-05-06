@@ -4,8 +4,8 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/tiago4orion/drm"
-	"github.com/tiago4orion/drm/ioctl"
+	"github.com/NeowayLabs/drm"
+	"github.com/NeowayLabs/drm/ioctl"
 )
 
 const (

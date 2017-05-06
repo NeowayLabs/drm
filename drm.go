@@ -6,7 +6,7 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/tiago4orion/drm/ioctl"
+	"github.com/NeowayLabs/drm/ioctl"
 )
 
 type (
@@ -115,9 +115,9 @@ func GetVersion(file *os.File) (Version, error) {
 		Minor:   version.Minor,
 		Patch:   version.Patch,
 
-		Name:    string(bytes.TrimFunc(name, nozero)),
-		Date:    string(bytes.TrimFunc(date, nozero)),
-		Desc:    string(bytes.TrimFunc(desc, nozero)),
+		Name: string(bytes.TrimFunc(name, nozero)),
+		Date: string(bytes.TrimFunc(date, nozero)),
+		Desc: string(bytes.TrimFunc(desc, nozero)),
 	}
 
 	return v, nil
