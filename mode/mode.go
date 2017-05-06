@@ -124,10 +124,6 @@ type (
 		size   uint64
 	}
 
-	sysDestroyDumb struct {
-		handle uint32
-	}
-
 	sysMapDumb struct {
 		handle uint32 // Handle for the object being mapped
 		pad    uint32
@@ -148,6 +144,10 @@ type (
 		handle uint32
 	}
 
+	sysRmFB struct {
+		handle uint32
+	}
+
 	sysCrtc struct {
 		setConnectorsPtr uintptr
 		countConnectors  uint32
@@ -160,6 +160,10 @@ type (
 		gammaSize uint32
 		modeValid uint32
 		mode      Info
+	}
+
+	sysDestroyDumb struct {
+		handle uint32
 	}
 
 	Crtc struct {
@@ -207,6 +211,10 @@ var (
 	IOCTLModeAddFB = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysFBCmd{})), drm.IOCTLBase, 0xAE)
 
+	// DRM_IOWR(0xAF, unsigned int)
+	IOCTLModeRmFB = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(uint32(0))), drm.IOCTLBase, 0xAF)
+
 	// DRM_IOWR(0xB2, struct drm_mode_create_dumb)
 	IOCTLModeCreateDumb = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysCreateDumb{})), drm.IOCTLBase, 0xB2)
@@ -214,6 +222,10 @@ var (
 	// DRM_IOWR(0xB3, struct drm_mode_map_dumb)
 	IOCTLModeMapDumb = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysMapDumb{})), drm.IOCTLBase, 0xB3)
+
+	// DRM_IOWR(0xB4, struct drm_mode_destroy_dumb)
+	IOCTLModeDestroyDumb = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysDestroyDumb{})), drm.IOCTLBase, 0xB4)
 )
 
 func GetResources(file *os.File) (*Resources, error) {
@@ -385,6 +397,11 @@ func AddFB(file *os.File, width, height uint16,
 	return f.fbID, nil
 }
 
+func RmFB(file *os.File, bufferid uint32) error {
+	return ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeRmFB),
+		uintptr(unsafe.Pointer(&sysRmFB{bufferid})))
+}
+
 func MapDumb(file *os.File, boHandle uint32) (uint64, error) {
 	mreq := &sysMapDumb{}
 	mreq.handle = boHandle
@@ -394,6 +411,11 @@ func MapDumb(file *os.File, boHandle uint32) (uint64, error) {
 		return 0, err
 	}
 	return mreq.offset, nil
+}
+
+func DestroyDumb(file *os.File, handle uint32) error {
+	return ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeDestroyDumb),
+		uintptr(unsafe.Pointer(&sysDestroyDumb{handle})))
 }
 
 func GetCrtc(file *os.File, id uint32) (*Crtc, error) {

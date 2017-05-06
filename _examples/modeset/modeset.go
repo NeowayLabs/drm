@@ -217,7 +217,7 @@ func draw() {
 			}
 		}
 
-		time.Sleep(1000000000)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -237,7 +237,42 @@ func nextColor(up *bool, cur uint8, mod int) uint8 {
 	return next
 }
 
-func cleanup() {}
+func cleanup(file *os.File) {
+	for _, dev := range modesetlist {
+		err := mode.SetCrtc(file, dev.savedCtrc.ID,
+			dev.savedCtrc.BufferID,
+			dev.savedCtrc.X, dev.savedCtrc.Y,
+			&dev.conn,
+			1,
+			&dev.savedCtrc.Mode,
+		)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to restore CRTC: %s\n", err.Error())
+			continue
+		}
+
+		for i := 0; i < len(dev.data); i++ {
+			dev.data[i] = 0
+		}
+
+		err = gommap.MMap(dev.data).UnsafeUnmap()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to munmap memory: %s\n", err.Error())
+			continue
+		}
+		err = mode.RmFB(file, dev.fb)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to remove frame buffer: %s\n", err.Error())
+			continue
+		}
+
+		err = mode.DestroyDumb(file, dev.handle)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to destroy dumb buffer: %s\n", err.Error())
+			continue
+		}
+	}
+}
 
 func main() {
 	file, err := drm.OpenCard(0)
@@ -275,5 +310,5 @@ func main() {
 	}
 
 	draw()
-	cleanup()
+	cleanup(file)
 }
