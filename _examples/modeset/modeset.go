@@ -11,8 +11,8 @@ import (
 
 	"launchpad.net/gommap"
 
-	"github.com/tiago4orion/drm"
-	"github.com/tiago4orion/drm/mode"
+	"github.com/NeowayLabs/drm"
+	"github.com/NeowayLabs/drm/mode"
 )
 
 type modeset struct {
