@@ -1,5 +1,5 @@
 // Port of modeset.c example to Go
-// Source: https://github.com/dvdhrm/docs/blob/master/drm-howto/modeset.c
+// Source: https://github.com/dvdhrm/docs/blob/master/drm-howto/modeset-double-buffered.c
 package main
 
 import (
@@ -15,15 +15,20 @@ import (
 	"github.com/NeowayLabs/drm/mode"
 )
 
-type modeset struct {
+type modesetBuf struct {
 	width, height uint16
 	stride        uint32
 	size          uint64
 	handle        uint32
 	data          []byte
+	fb            uint32
+}
+
+type modeset struct {
+	frontBuf  uint
+	bufs      [2]modesetBuf
 
 	mode      mode.Info
-	fb        uint32
 	conn      uint32
 	crtc      uint32
 	savedCtrc *mode.Crtc
@@ -73,17 +78,24 @@ func setupDev(file *os.File, res *mode.Resources, conn *mode.Connector, dev *mod
 		return false, fmt.Errorf("no valid mode for connector %d\n", conn.ID)
 	}
 	dev.mode = conn.Modes[0]
-	dev.width = conn.Modes[0].Hdisplay
-	dev.height = conn.Modes[0].Vdisplay
+	dev.bufs[0].width = conn.Modes[0].Hdisplay
+	dev.bufs[0].height = conn.Modes[0].Vdisplay
+	dev.bufs[1].width = conn.Modes[0].Hdisplay
+	dev.bufs[1].height = conn.Modes[0].Vdisplay
 
-	log.Printf("mode for connector %d is %dx%d\n", conn.ID, dev.width, dev.height)
+	log.Printf("mode for connector %d is %dx%d\n", conn.ID, conn.Modes[0].Hdisplay, conn.Modes[0].Vdisplay)
 
 	err := findCrtc(file, res, conn, dev)
 	if err != nil {
 		return false, fmt.Errorf("no valid crtc for connector %u: %s", conn.ID, err.Error())
 	}
 
-	err = createFramebuffer(file, dev)
+	err = createFramebuffer(file, &dev.bufs[0])
+	if err != nil {
+		return false, err
+	}
+
+	err = createFramebuffer(file, &dev.bufs[1])
 	if err != nil {
 		return false, err
 	}
@@ -160,37 +172,62 @@ func findCrtc(file *os.File, res *mode.Resources, conn *mode.Connector, dev *mod
 	return fmt.Errorf("Cannot find a suitable CRTC for connector %d", conn.ID)
 }
 
-func createFramebuffer(file *os.File, dev *modeset) error {
-	fb, err := mode.CreateFB(file, dev.width, dev.height, 32)
+func createFramebuffer(file *os.File, buf *modesetBuf) error {
+	fb, err := mode.CreateFB(file, buf.width, buf.height, 32)
 	if err != nil {
 		return fmt.Errorf("Failed to create framebuffer: %s", err.Error())
 	}
-	dev.stride = fb.Pitch
-	dev.size = fb.Size
-	dev.handle = fb.Handle
-	fbID, err := mode.AddFB(file, dev.width, dev.height, 24, 32, dev.stride, dev.handle)
+	buf.stride = fb.Pitch
+	buf.size = fb.Size
+	buf.handle = fb.Handle
+	fbID, err := mode.AddFB(file, buf.width, buf.height, 24, 32, buf.stride, buf.handle)
 	if err != nil {
 		return fmt.Errorf("Cannot create dumb buffer: %s", err.Error())
 	}
-	dev.fb = fbID
+	buf.fb = fbID
 
-	offset, err := mode.MapDumb(file, dev.handle)
+	offset, err := mode.MapDumb(file, buf.handle)
 	if err != nil {
 		return err
 	}
 
-	mmap, err := gommap.MapAt(0, uintptr(file.Fd()), int64(offset), int64(dev.size), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
+	mmap, err := gommap.MapAt(0, uintptr(file.Fd()), int64(offset), int64(buf.size), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
 	if err != nil {
 		return fmt.Errorf("Failed to mmap framebuffer: %s", err.Error())
 	}
-	for i := uint64(0); i < dev.size; i++ {
+	for i := uint64(0); i < buf.size; i++ {
 		mmap[i] = 0
 	}
-	dev.data = mmap
+	buf.data = mmap
 	return nil
 }
 
-func draw() {
+func destroyFramebuffer(file *os.File, buf *modesetBuf) error {
+	for i := 0; i < len(buf.data); i++ {
+		buf.data[i] = 0
+	}
+
+	err := gommap.MMap(buf.data).UnsafeUnmap()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to munmap memory: %s\n", err.Error())
+		return err
+	}
+	err = mode.RmFB(file, buf.fb)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to remove frame buffer: %s\n", err.Error())
+		return err
+	}
+
+	err = mode.DestroyDumb(file, buf.handle)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to destroy dumb buffer: %s\n", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func draw(file *os.File) {
 	var (
 		r, g, b       uint8
 		rUp, gUp, bUp = true, true, true
@@ -209,12 +246,22 @@ func draw() {
 
 		for j := 0; j < len(modesetlist); j++ {
 			iter := modesetlist[j]
-			for k := uint16(0); k < iter.height; k++ {
-				for s := uint16(0); s < iter.width; s++ {
-					off = (iter.stride * uint32(k)) + (uint32(s) * 4)
-					iter.data[off] = (r << 16) | (g << 8) | b
+			buf := &iter.bufs[iter.frontBuf ^ 1]
+			for k := uint16(0); k < buf.height; k++ {
+				for s := uint16(0); s < buf.width; s++ {
+					off = (buf.stride * uint32(k)) + (uint32(s) * 4)
+					buf.data[off] = (r << 16) | (g << 8) | b
 				}
 			}
+
+			err := mode.SetCrtc(file, iter.crtc, buf.fb, 0, 0, &iter.conn, 1, &iter.mode)
+			if err != nil {
+				log.Printf("[error] Cannot flip CRTC for connector %d: %s", iter.conn, err.Error())
+				return
+			} else {
+				iter.frontBuf ^= 1
+			}
+
 		}
 
 		time.Sleep(100 * time.Millisecond)
@@ -251,26 +298,9 @@ func cleanup(file *os.File) {
 			continue
 		}
 
-		for i := 0; i < len(dev.data); i++ {
-			dev.data[i] = 0
-		}
-
-		err = gommap.MMap(dev.data).UnsafeUnmap()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to munmap memory: %s\n", err.Error())
-			continue
-		}
-		err = mode.RmFB(file, dev.fb)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to remove frame buffer: %s\n", err.Error())
-			continue
-		}
-
-		err = mode.DestroyDumb(file, dev.handle)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to destroy dumb buffer: %s\n", err.Error())
-			continue
-		}
+		// destroy framebuffers
+		destroyFramebuffer(file, &dev.bufs[1])
+		destroyFramebuffer(file, &dev.bufs[0])
 	}
 }
 
@@ -301,14 +331,15 @@ func main() {
 			return
 		}
 		fmt.Printf("crtc = %d, conn = %d, mode = %#v\n", mset.crtc, mset.conn, mset.mode)
-		fmt.Printf("fb = %d\n", mset.fb)
-		err = mode.SetCrtc(file, mset.crtc, mset.fb, 0, 0, &mset.conn, 1, &mset.mode)
+		buf := &mset.bufs[mset.frontBuf]
+		fmt.Printf("fb = %d\n", buf.fb)
+		err = mode.SetCrtc(file, mset.crtc, buf.fb, 0, 0, &mset.conn, 1, &mset.mode)
 		if err != nil {
 			log.Printf("[error] Cannot set CRTC for connector %d: %s", mset.conn, err.Error())
 			return
 		}
 	}
 
-	draw()
+	draw(file)
 	cleanup(file)
 }
