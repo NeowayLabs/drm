@@ -34,10 +34,50 @@ type (
 		Date                string
 		Desc                string
 	}
+
+	EventContext struct {
+		Version int32
+
+		VblankHandler func(file *os.File,
+			sequence uint,
+			tvSec uint,
+			tvUsec uint,
+			userData *interface{})
+
+		PageFlipHandler func(file *os.File,
+			sequence uint,
+			tvSec uint,
+			tvUsec uint,
+			userData *interface{})
+
+		PageFlipHandler2 func(file *os.File,
+			sequence uint,
+			tvSec uint,
+			tvUsec uint,
+			crtcID uint,
+			userData *interface{})
+	}
+
+	Event struct {
+		type   uint32
+		length uint32
+	}
+
+	EventVblank struct {
+		base     Event
+		userData uint64
+		tvSec    uint32
+		tvUsec   uint32
+		sequence uint32
+		crtcID   uint32
+	}
 )
 
 const (
 	driPath = "/dev/dri"
+
+	EventVblankFlag   = 0x01
+	EventFlipComplete = 0x02
 )
 
 func Available() (Version, error) {

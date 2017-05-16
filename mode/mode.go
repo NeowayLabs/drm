@@ -17,6 +17,9 @@ const (
 	Connected         = 1
 	Disconnected      = 2
 	UnknownConnection = 3
+
+	PageFlipEvent = 0x01
+	PageFlipAsync = 0x02
 )
 
 type (
@@ -184,6 +187,14 @@ type (
 		Pitch                     uint32
 		Size                      uint64
 	}
+
+	sysCrtcPageFlip struct {
+		crtcID   uint32
+		fbID     uint32
+		flags    uint32
+		reserved uint32
+		userData uint64
+	}
 )
 
 var (
@@ -226,6 +237,10 @@ var (
 	// DRM_IOWR(0xB4, struct drm_mode_destroy_dumb)
 	IOCTLModeDestroyDumb = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysDestroyDumb{})), drm.IOCTLBase, 0xB4)
+
+	// DRM_IOWR(0xB0, struct drm_mode_crtc_page_flip)
+	IOCTLModeCrtcPageFlip = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysCrtcPageFlip{})), drm.IOCTLBase, 0xB0)
 )
 
 func GetResources(file *os.File) (*Resources, error) {
@@ -457,4 +472,18 @@ func SetCrtc(file *os.File, crtcid, bufferid, x, y uint32, connectors *uint32, c
 	}
 	return ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeSetCrtc),
 		uintptr(unsafe.Pointer(crtc)))
+}
+
+func HandleEvent(file *os.File, eventContext *drm.EventContext) error {
+	
+}
+
+func PageFlip(file *os.File, crtcid, bufferid, flags uint32, userdata *interface{}) error {
+	flip := &sysCrtcPageFlip{}
+	flip.crtcID = crtcid
+	flip.fbID = bufferid
+	flip.userData = uint64(unsafe.Pointer(userdata))
+	flip.flags = flags
+	return ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeCrtcPageFlip),
+		uintptr(unsafe.Pointer(flip)))
 }
