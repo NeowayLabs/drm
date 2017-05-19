@@ -235,9 +235,6 @@ func draw(file *os.File) {
 		off           uint32
 	)
 
-	//	gcpct := debug.SetGCPercent(-1)
-	//	defer debug.SetGCPercent(gcpct)
-
 	rand.Seed(int64(time.Now().Unix()))
 	r = uint8(rand.Intn(256))
 	g = uint8(rand.Intn(256))

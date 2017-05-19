@@ -215,7 +215,6 @@ func draw() {
 					off = (iter.stride * uint32(k)) + (uint32(s) * 4)
 					val := uint32((uint32(r) << 16) | (uint32(g) << 8) | uint32(b))
 					*(*uint32)(unsafe.Pointer(&iter.data[off])) = val
-					//					iter.data[off] = byte(val)
 				}
 			}
 		}
