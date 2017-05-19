@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"time"
+	"unsafe"
 
 	"launchpad.net/gommap"
 
@@ -212,7 +213,8 @@ func draw() {
 			for k := uint16(0); k < iter.height; k++ {
 				for s := uint16(0); s < iter.width; s++ {
 					off = (iter.stride * uint32(k)) + (uint32(s) * 4)
-					iter.data[off] = (r << 16) | (g << 8) | b
+					val := uint32((uint32(r) << 16) | (uint32(g) << 8) | uint32(b))
+					*(*uint32)(unsafe.Pointer(&iter.data[off])) = val
 				}
 			}
 		}

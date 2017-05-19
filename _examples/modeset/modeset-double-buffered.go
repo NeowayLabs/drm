@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"time"
+	"unsafe"
 
 	"launchpad.net/gommap"
 
@@ -25,8 +26,8 @@ type modesetBuf struct {
 }
 
 type modeset struct {
-	frontBuf  uint
-	bufs      [2]modesetBuf
+	frontBuf uint
+	bufs     [2]modesetBuf
 
 	mode      mode.Info
 	conn      uint32
@@ -246,11 +247,12 @@ func draw(file *os.File) {
 
 		for j := 0; j < len(modesetlist); j++ {
 			iter := modesetlist[j]
-			buf := &iter.bufs[iter.frontBuf ^ 1]
+			buf := &iter.bufs[iter.frontBuf^1]
 			for k := uint16(0); k < buf.height; k++ {
 				for s := uint16(0); s < buf.width; s++ {
 					off = (buf.stride * uint32(k)) + (uint32(s) * 4)
-					buf.data[off] = (r << 16) | (g << 8) | b
+					val := uint32((uint32(r) << 16) | (uint32(g) << 8) | uint32(b))
+					*(*uint32)(unsafe.Pointer(&buf.data[off])) = val
 				}
 			}
 
