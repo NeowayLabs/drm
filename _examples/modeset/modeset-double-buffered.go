@@ -103,9 +103,9 @@ func draw(file *os.File, msets []msetData) {
 			if err != nil {
 				log.Printf("[error] Cannot flip CRTC for connector %d: %s", mset.mode.Conn, err.Error())
 				return
-			} else {
-				mset.frontbuf ^= 1
 			}
+
+			mset.frontbuf ^= 1
 		}
 
 		time.Sleep(150 * time.Millisecond)
