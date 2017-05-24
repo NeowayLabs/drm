@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"image"
-	"math/rand"
 	"os"
 	"time"
 	"unsafe"
@@ -101,22 +100,6 @@ func draw(msets []msetData) {
 	}
 
 	time.Sleep(10 * time.Second)
-}
-
-func nextColor(up *bool, cur uint8, mod int) uint8 {
-	var next uint8
-
-	if *up {
-		next = cur + 1
-	} else {
-		next = cur - 1
-	}
-	next = next * uint8(rand.Intn(mod))
-	if (*up && next < cur) || (!*up && next > cur) {
-		*up = !*up
-		next = cur
-	}
-	return next
 }
 
 func destroyFramebuffer(modeset *mode.SimpleModeset, mset msetData, file *os.File) error {
