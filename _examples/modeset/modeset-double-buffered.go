@@ -16,219 +16,62 @@ import (
 	"github.com/NeowayLabs/drm/mode"
 )
 
-type modesetBuf struct {
-	width, height uint16
-	stride        uint32
-	size          uint64
-	handle        uint32
-	data          []byte
-	fb            uint32
-}
+type (
+	framebuffer struct {
+		id     uint32
+		handle uint32
+		data   []byte
+		fb     *mode.FB
+		size   uint64
+		stride uint32
+	}
 
-type modeset struct {
-	frontBuf uint
-	bufs     [2]modesetBuf
+	msetData struct {
+		mode      *mode.Modeset
+		fbs       [2]framebuffer
+		frontbuf  uint
+		savedCrtc *mode.Crtc
+	}
+)
 
-	mode      mode.Info
-	conn      uint32
-	crtc      uint32
-	savedCtrc *mode.Crtc
-}
-
-var modesetlist []*modeset
-
-func prepare(file *os.File) error {
-	res, err := mode.GetResources(file)
+func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
+	fb, err := mode.CreateFB(file, dev.Width, dev.Height, 32)
 	if err != nil {
-		return fmt.Errorf("Cannot retrieve resources: %s", err.Error())
+		return framebuffer{}, fmt.Errorf("Failed to create framebuffer: %s", err.Error())
 	}
+	stride := fb.Pitch
+	size := fb.Size
+	handle := fb.Handle
 
-	for i := 0; i < len(res.Connectors); i++ {
-		conn, err := mode.GetConnector(file, res.Connectors[i])
-		if err != nil {
-			return fmt.Errorf("Cannot retrieve connector: %s", err.Error())
-		}
-
-		dev := &modeset{}
-		dev.conn = conn.ID
-		ok, err := setupDev(file, res, conn, dev)
-		if err != nil {
-			return err
-		}
-
-		if !ok {
-			continue
-		}
-
-		modesetlist = append(modesetlist, dev)
-		fmt.Printf("%#v\n", conn)
-	}
-
-	return nil
-}
-
-func setupDev(file *os.File, res *mode.Resources, conn *mode.Connector, dev *modeset) (bool, error) {
-	// check if a monitor is connected
-	if conn.Connection != mode.Connected {
-		log.Printf("Ignoring unused connector %d: %d", conn.ID, conn.Connection)
-		return false, nil
-	}
-
-	// check if there is at least one valid mode
-	if len(conn.Modes) == 0 {
-		return false, fmt.Errorf("no valid mode for connector %d\n", conn.ID)
-	}
-	dev.mode = conn.Modes[0]
-	dev.bufs[0].width = conn.Modes[0].Hdisplay
-	dev.bufs[0].height = conn.Modes[0].Vdisplay
-	dev.bufs[1].width = conn.Modes[0].Hdisplay
-	dev.bufs[1].height = conn.Modes[0].Vdisplay
-
-	log.Printf("mode for connector %d is %dx%d\n", conn.ID, conn.Modes[0].Hdisplay, conn.Modes[0].Vdisplay)
-
-	err := findCrtc(file, res, conn, dev)
+	fbID, err := mode.AddFB(file, dev.Width, dev.Height, 24, 32, stride, handle)
 	if err != nil {
-		return false, fmt.Errorf("no valid crtc for connector %u: %s", conn.ID, err.Error())
+		return framebuffer{}, fmt.Errorf("Cannot create dumb buffer: %s", err.Error())
 	}
 
-	err = createFramebuffer(file, &dev.bufs[0])
+	offset, err := mode.MapDumb(file, handle)
 	if err != nil {
-		return false, err
+		return framebuffer{}, err
 	}
 
-	err = createFramebuffer(file, &dev.bufs[1])
+	mmap, err := gommap.MapAt(0, uintptr(file.Fd()), int64(offset), int64(size), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
 	if err != nil {
-		return false, err
+		return framebuffer{}, fmt.Errorf("Failed to mmap framebuffer: %s", err.Error())
 	}
-
-	return true, nil
-}
-
-func findCrtc(file *os.File, res *mode.Resources, conn *mode.Connector, dev *modeset) error {
-	var (
-		encoder *mode.Encoder
-		err     error
-	)
-
-	if conn.EncoderID != 0 {
-		encoder, err = mode.GetEncoder(file, conn.EncoderID)
-		if err != nil {
-			return err
-		}
-	}
-
-	if encoder != nil {
-		if encoder.CrtcID != 0 {
-			crtcid := encoder.CrtcID
-			found := false
-
-			for i := 0; i < len(modesetlist); i++ {
-				if modesetlist[i].crtc == crtcid {
-					found = true
-					break
-				}
-			}
-
-			if crtcid >= 0 && !found {
-				dev.crtc = crtcid
-				return nil
-			}
-		}
-	}
-
-	// If the connector is not currently bound to an encoder or if the
-	// encoder+crtc is already used by another connector (actually unlikely
-	// but lets be safe), iterate all other available encoders to find a
-	// matching CRTC.
-	for i := 0; i < len(conn.Encoders); i++ {
-		encoder, err := mode.GetEncoder(file, conn.Encoders[i])
-		if err != nil {
-			return fmt.Errorf("Cannot retrieve encoder: %s", err.Error())
-		}
-		// iterate all global CRTCs
-		for j := 0; j < len(res.Crtcs); j++ {
-			// check whether this CRTC works with the encoder
-			if (encoder.PossibleCrtcs & (1 << uint(j))) != 0 {
-				continue
-			}
-
-			// check that no other device already uses this CRTC
-			crtcid := res.Crtcs[j]
-			found := false
-			for k := 0; k < len(modesetlist); k++ {
-				if modesetlist[k].crtc == crtcid {
-					found = true
-					break
-				}
-			}
-
-			// we have found a CRTC, so save it and return
-			if crtcid >= 0 && !found {
-				dev.crtc = crtcid
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("Cannot find a suitable CRTC for connector %d", conn.ID)
-}
-
-func createFramebuffer(file *os.File, buf *modesetBuf) error {
-	fb, err := mode.CreateFB(file, buf.width, buf.height, 32)
-	if err != nil {
-		return fmt.Errorf("Failed to create framebuffer: %s", err.Error())
-	}
-	buf.stride = fb.Pitch
-	buf.size = fb.Size
-	buf.handle = fb.Handle
-	fbID, err := mode.AddFB(file, buf.width, buf.height, 24, 32, buf.stride, buf.handle)
-	if err != nil {
-		return fmt.Errorf("Cannot create dumb buffer: %s", err.Error())
-	}
-	buf.fb = fbID
-
-	offset, err := mode.MapDumb(file, buf.handle)
-	if err != nil {
-		return err
-	}
-
-	mmap, err := gommap.MapAt(0, uintptr(file.Fd()), int64(offset), int64(buf.size), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
-	if err != nil {
-		return fmt.Errorf("Failed to mmap framebuffer: %s", err.Error())
-	}
-	for i := uint64(0); i < buf.size; i++ {
+	for i := uint64(0); i < size; i++ {
 		mmap[i] = 0
 	}
-	buf.data = mmap
-	return nil
+	framebuf := framebuffer{
+		id:     fbID,
+		handle: handle,
+		data:   mmap,
+		fb:     fb,
+		size:   size,
+		stride: stride,
+	}
+	return framebuf, nil
 }
 
-func destroyFramebuffer(file *os.File, buf *modesetBuf) error {
-	for i := 0; i < len(buf.data); i++ {
-		buf.data[i] = 0
-	}
-
-	err := gommap.MMap(buf.data).UnsafeUnmap()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to munmap memory: %s\n", err.Error())
-		return err
-	}
-	err = mode.RmFB(file, buf.fb)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to remove frame buffer: %s\n", err.Error())
-		return err
-	}
-
-	err = mode.DestroyDumb(file, buf.handle)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to destroy dumb buffer: %s\n", err.Error())
-		return err
-	}
-
-	return nil
-}
-
-func draw(file *os.File) {
+func draw(file *os.File, msets []msetData) {
 	var (
 		r, g, b       uint8
 		rUp, gUp, bUp = true, true, true
@@ -245,28 +88,27 @@ func draw(file *os.File) {
 		g = nextColor(&gUp, g, 10)
 		b = nextColor(&bUp, b, 5)
 
-		for j := 0; j < len(modesetlist); j++ {
-			iter := modesetlist[j]
-			buf := &iter.bufs[iter.frontBuf^1]
-			for k := uint16(0); k < buf.height; k++ {
-				for s := uint16(0); s < buf.width; s++ {
+		for j := 0; j < len(msets); j++ {
+			mset := msets[j]
+			buf := &mset.fbs[mset.frontbuf^1]
+			for k := uint16(0); k < mset.mode.Height; k++ {
+				for s := uint16(0); s < mset.mode.Width; s++ {
 					off = (buf.stride * uint32(k)) + (uint32(s) * 4)
 					val := uint32((uint32(r) << 16) | (uint32(g) << 8) | uint32(b))
 					*(*uint32)(unsafe.Pointer(&buf.data[off])) = val
 				}
 			}
 
-			err := mode.SetCrtc(file, iter.crtc, buf.fb, 0, 0, &iter.conn, 1, &iter.mode)
+			err := mode.SetCrtc(file, mset.mode.Crtc, buf.id, 0, 0, &mset.mode.Conn, 1, &mset.mode.Mode)
 			if err != nil {
-				log.Printf("[error] Cannot flip CRTC for connector %d: %s", iter.conn, err.Error())
+				log.Printf("[error] Cannot flip CRTC for connector %d: %s", mset.mode.Conn, err.Error())
 				return
-			} else {
-				iter.frontBuf ^= 1
 			}
 
+			mset.frontbuf ^= 1
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(150 * time.Millisecond)
 	}
 }
 
@@ -286,24 +128,43 @@ func nextColor(up *bool, cur uint8, mod int) uint8 {
 	return next
 }
 
-func cleanup(file *os.File) {
-	for _, dev := range modesetlist {
-		err := mode.SetCrtc(file, dev.savedCtrc.ID,
-			dev.savedCtrc.BufferID,
-			dev.savedCtrc.X, dev.savedCtrc.Y,
-			&dev.conn,
-			1,
-			&dev.savedCtrc.Mode,
-		)
+func destroyFramebuffer(modeset *mode.SimpleModeset, mset msetData, file *os.File) {
+	fbs := mset.fbs
+
+	for _, fb := range fbs {
+		handle := fb.handle
+		data := fb.data
+
+		err := gommap.MMap(data).UnsafeUnmap()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to restore CRTC: %s\n", err.Error())
+			fmt.Fprintf(os.Stderr, "Failed to munmap memory: %s\n", err.Error())
+			continue
+		}
+		err = mode.RmFB(file, fb.id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to remove frame buffer: %s\n", err.Error())
 			continue
 		}
 
-		// destroy framebuffers
-		destroyFramebuffer(file, &dev.bufs[1])
-		destroyFramebuffer(file, &dev.bufs[0])
+		err = mode.DestroyDumb(file, handle)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to destroy dumb buffer: %s\n", err.Error())
+			continue
+		}
+
+		err = modeset.SetCrtc(mset.mode, mset.savedCrtc)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, err.Error())
+			continue
+		}
 	}
+}
+
+func cleanup(modeset *mode.SimpleModeset, msets []msetData, file *os.File) {
+	for _, mset := range msets {
+		destroyFramebuffer(modeset, mset, file)
+	}
+
 }
 
 func main() {
@@ -317,31 +178,53 @@ func main() {
 		fmt.Printf("drm device does not support dumb buffers")
 		return
 	}
-	err = prepare(file)
+
+	modeset, err := mode.NewSimpleModeset(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
-		return
+		os.Exit(1)
 	}
 
-	for i := 0; i < len(modesetlist); i++ {
-		var err error
+	var msets []msetData
+	for _, mod := range modeset.Modesets {
+		framebuf1, err := createFramebuffer(file, &mod)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+			cleanup(modeset, msets, file)
+			return
+		}
 
-		mset := modesetlist[i]
-		mset.savedCtrc, err = mode.GetCrtc(file, mset.crtc)
+		framebuf2, err := createFramebuffer(file, &mod)
 		if err != nil {
-			log.Printf("[error] Cannot get CRTC for connector %d: %s", mset.conn, err.Error())
+			fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+			cleanup(modeset, msets, file)
 			return
 		}
-		fmt.Printf("crtc = %d, conn = %d, mode = %#v\n", mset.crtc, mset.conn, mset.mode)
-		buf := &mset.bufs[mset.frontBuf]
-		fmt.Printf("fb = %d\n", buf.fb)
-		err = mode.SetCrtc(file, mset.crtc, buf.fb, 0, 0, &mset.conn, 1, &mset.mode)
+
+		// save current CRTC of this mode to restore at exit
+		savedCrtc, err := mode.GetCrtc(file, mod.Crtc)
 		if err != nil {
-			log.Printf("[error] Cannot set CRTC for connector %d: %s", mset.conn, err.Error())
+			fmt.Fprintf(os.Stderr, "error: Cannot get CRTC for connector %d: %s", mod.Conn, err.Error())
+			cleanup(modeset, msets, file)
 			return
 		}
+		// change the mode using framebuf1 initially
+		err = mode.SetCrtc(file, mod.Crtc, framebuf1.id, 0, 0, &mod.Conn, 1, &mod.Mode)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cannot set CRTC for connector %d: %s", mod.Conn, err.Error())
+			cleanup(modeset, msets, file)
+			return
+		}
+		msets = append(msets, msetData{
+			frontbuf: 0,
+			mode:     &mod,
+			fbs: [2]framebuffer{
+				framebuf1, framebuf2,
+			},
+			savedCrtc: savedCrtc,
+		})
 	}
 
-	draw(file)
-	cleanup(file)
+	draw(file, msets)
+	cleanup(modeset, msets, file)
 }
