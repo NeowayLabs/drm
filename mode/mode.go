@@ -21,10 +21,10 @@ const (
 
 type (
 	sysResources struct {
-		fbIdPtr              uintptr
-		crtcIdPtr            uintptr
-		connectorIdPtr       uintptr
-		encoderIdPtr         uintptr
+		fbIdPtr              uint64
+		crtcIdPtr            uint64
+		connectorIdPtr       uint64
+		encoderIdPtr         uint64
 		CountFbs             uint32
 		CountCrtcs           uint32
 		CountConnectors      uint32
@@ -34,10 +34,10 @@ type (
 	}
 
 	sysGetConnector struct {
-		encodersPtr   uintptr
-		modesPtr      uintptr
-		propsPtr      uintptr
-		propValuesPtr uintptr
+		encodersPtr   uint64
+		modesPtr      uint64
+		propsPtr      uint64
+		propValuesPtr uint64
 
 		countModes    uint32
 		countProps    uint32
@@ -149,7 +149,7 @@ type (
 	}
 
 	sysCrtc struct {
-		setConnectorsPtr uintptr
+		setConnectorsPtr uint64
 		countConnectors  uint32
 
 		id   uint32
@@ -242,19 +242,19 @@ func GetResources(file *os.File) (*Resources, error) {
 
 	if mres.CountFbs > 0 {
 		fbids = make([]uint32, mres.CountFbs)
-		mres.fbIdPtr = uintptr(unsafe.Pointer(&fbids[0]))
+		mres.fbIdPtr = uint64(uintptr(unsafe.Pointer(&fbids[0])))
 	}
 	if mres.CountCrtcs > 0 {
 		crtcids = make([]uint32, mres.CountCrtcs)
-		mres.crtcIdPtr = uintptr(unsafe.Pointer(&crtcids[0]))
+		mres.crtcIdPtr = uint64(uintptr(unsafe.Pointer(&crtcids[0])))
 	}
 	if mres.CountEncoders > 0 {
 		encoderids = make([]uint32, mres.CountEncoders)
-		mres.encoderIdPtr = uintptr(unsafe.Pointer(&encoderids[0]))
+		mres.encoderIdPtr = uint64(uintptr(unsafe.Pointer(&encoderids[0])))
 	}
 	if mres.CountConnectors > 0 {
 		connectorids = make([]uint32, mres.CountConnectors)
-		mres.connectorIdPtr = uintptr(unsafe.Pointer(&connectorids[0]))
+		mres.connectorIdPtr = uint64(uintptr(unsafe.Pointer(&connectorids[0])))
 	}
 
 	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeResources),
@@ -291,10 +291,10 @@ func GetConnector(file *os.File, connid uint32) (*Connector, error) {
 
 	if conn.countProps > 0 {
 		props = make([]uint32, conn.countProps)
-		conn.propsPtr = uintptr(unsafe.Pointer(&props[0]))
+		conn.propsPtr = uint64(uintptr(unsafe.Pointer(&props[0])))
 
 		propValues = make([]uint64, conn.countProps)
-		conn.propValuesPtr = uintptr(unsafe.Pointer(&propValues[0]))
+		conn.propValuesPtr = uint64(uintptr(unsafe.Pointer(&propValues[0])))
 	}
 
 	if conn.countModes == 0 {
@@ -302,11 +302,11 @@ func GetConnector(file *os.File, connid uint32) (*Connector, error) {
 	}
 
 	modes = make([]Info, conn.countModes)
-	conn.modesPtr = uintptr(unsafe.Pointer(&modes[0]))
+	conn.modesPtr = uint64(uintptr(unsafe.Pointer(&modes[0])))
 
 	if conn.countEncoders > 0 {
 		encoders = make([]uint32, conn.countEncoders)
-		conn.encodersPtr = uintptr(unsafe.Pointer(&encoders[0]))
+		conn.encodersPtr = uint64(uintptr(unsafe.Pointer(&encoders[0])))
 	}
 
 	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetConnector),
@@ -448,7 +448,7 @@ func SetCrtc(file *os.File, crtcid, bufferid, x, y uint32, connectors *uint32, c
 	crtc.id = crtcid
 	crtc.fbID = bufferid
 	if connectors != nil {
-		crtc.setConnectorsPtr = uintptr(unsafe.Pointer(connectors))
+		crtc.setConnectorsPtr = uint64(uintptr(unsafe.Pointer(connectors)))
 	}
 	crtc.countConnectors = uint32(count)
 	if mode != nil {
