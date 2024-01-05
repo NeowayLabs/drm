@@ -144,6 +144,17 @@ type (
 		handle uint32
 	}
 
+	sysFBCmd2 struct {
+		fbID          uint32
+		width, height uint32
+		pixelFormat   uint32
+		flags         uint32
+		handles       [4]uint32
+		pitches       [4]uint32
+		offsets       [4]uint32
+		modifier      [4]uint64
+	}
+
 	sysRmFB struct {
 		handle uint32
 	}
@@ -210,6 +221,10 @@ var (
 	// DRM_IOWR(0xAE, struct drm_mode_fb_cmd)
 	IOCTLModeAddFB = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysFBCmd{})), drm.IOCTLBase, 0xAE)
+
+	// DRM_IOWR(0xAE, struct drm_mode_fb_cmd)
+	IOCTLModeAddFB2 = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysFBCmd2{})), drm.IOCTLBase, 0xB8)
 
 	// DRM_IOWR(0xAF, unsigned int)
 	IOCTLModeRmFB = ioctl.NewCode(ioctl.Read|ioctl.Write,
@@ -390,6 +405,25 @@ func AddFB(file *os.File, width, height uint16,
 	f.depth = uint32(depth)
 	f.handle = boHandle
 	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeAddFB),
+		uintptr(unsafe.Pointer(f)))
+	if err != nil {
+		return 0, err
+	}
+	return f.fbID, nil
+}
+
+func AddFB2SinglePlane(file *os.File, width, height uint16,
+	pixelFormat uint32, flags, pitch, offset, boHandle uint32, modifier uint64) (uint32, error) {
+	f := &sysFBCmd2{}
+	f.width = uint32(width)
+	f.height = uint32(height)
+	f.pixelFormat = pixelFormat
+	f.flags = flags
+	f.handles[0] = boHandle
+	f.pitches[0] = pitch
+	f.offsets[0] = offset
+	f.modifier[0] = modifier
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeAddFB2),
 		uintptr(unsafe.Pointer(f)))
 	if err != nil {
 		return 0, err
