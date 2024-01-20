@@ -69,28 +69,28 @@ type (
 	}
 
 	sysGetPlane struct {
-		planeId  uint32
-		crtcId uint32
-		fbId uint32
-		possibleCrtcs uint32
-		gammaSize uint32
+		planeId          uint32
+		crtcId           uint32
+		fbId             uint32
+		possibleCrtcs    uint32
+		gammaSize        uint32
 		countFormatTypes uint32
-		formatTypePtr uint64
+		formatTypePtr    uint64
 	}
 
 	sysSetPlane struct {
-		planeId  uint32
-		crtcId uint32
-		fbId uint32
-		flags uint32
-		crtcX int32
-		crtcY int32
-		crtcW uint32
-		crtcH uint32
-		srcX uint32
-		srcY uint32
-		srcH uint32
-		srcW uint32
+		planeId uint32
+		crtcId  uint32
+		fbId    uint32
+		flags   uint32
+		crtcX   int32
+		crtcY   int32
+		crtcW   uint32
+		crtcH   uint32
+		srcX    uint32
+		srcY    uint32
+		srcH    uint32
+		srcW    uint32
 	}
 
 	Info struct {
@@ -146,18 +146,18 @@ type (
 	PlaneResources struct {
 		sysGetPlaneResources
 
-		Planes        []uint32
+		Planes []uint32
 	}
 
 	Plane struct {
 		sysGetPlane
 
-		ID        uint32
+		ID            uint32
 		CrtcID        uint32
-		FbID        uint32
-		PossibleCrtcs  uint32
-		GammaSize  uint32
-		FormatTypes  []uint32
+		FbID          uint32
+		PossibleCrtcs uint32
+		GammaSize     uint32
+		FormatTypes   []uint32
 	}
 
 	sysCreateDumb struct {
@@ -459,7 +459,7 @@ func GetPlaneResources(file *os.File) (*PlaneResources, error) {
 
 	return &PlaneResources{
 		sysGetPlaneResources: *mPlaneRes,
-		Planes:   planeIds,
+		Planes:               planeIds,
 	}, nil
 }
 
@@ -487,12 +487,12 @@ func GetPlane(file *os.File, id uint32) (*Plane, error) {
 	}
 
 	return &Plane{
-		sysGetPlane: *mPlaneRes,
-		ID: mPlaneRes.planeId,
-		CrtcID: mPlaneRes.crtcId,
-		FbID: mPlaneRes.fbId,
+		sysGetPlane:   *mPlaneRes,
+		ID:            mPlaneRes.planeId,
+		CrtcID:        mPlaneRes.crtcId,
+		FbID:          mPlaneRes.fbId,
 		PossibleCrtcs: mPlaneRes.possibleCrtcs,
-		GammaSize: mPlaneRes.gammaSize,
+		GammaSize:     mPlaneRes.gammaSize,
 		FormatTypes:   formatTypes,
 	}, nil
 }
@@ -500,17 +500,17 @@ func GetPlane(file *os.File, id uint32) (*Plane, error) {
 func SetPlane(file *os.File, planeId, crtcId, fbId uint32, flags uint32, crtcX, crtcY int32, crtcW, crtcH, srcX, srcY, srcH, srcW uint32) error {
 	mPlaneRes := &sysSetPlane{
 		planeId: planeId,
-		crtcId: crtcId,
-		fbId: fbId,
-		flags: flags,
-		crtcX: crtcX,
-		crtcY: crtcY,
-		crtcW: crtcW,
-		crtcH: crtcH,
-		srcX: srcX,
-		srcY: srcY,
-		srcW: srcW,
-		srcH: srcH,
+		crtcId:  crtcId,
+		fbId:    fbId,
+		flags:   flags,
+		crtcX:   crtcX,
+		crtcY:   crtcY,
+		crtcW:   crtcW,
+		crtcH:   crtcH,
+		srcX:    srcX,
+		srcY:    srcY,
+		srcW:    srcW,
+		srcH:    srcH,
 	}
 	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeSetPlane),
 		uintptr(unsafe.Pointer(mPlaneRes)))
