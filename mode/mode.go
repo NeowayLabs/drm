@@ -63,6 +63,36 @@ type (
 		possibleClones uint32
 	}
 
+	sysGetPlaneResources struct {
+		planeIdPtr  uint64
+		countPlanes uint32
+	}
+
+	sysGetPlane struct {
+		planeId  uint32
+		crtcId uint32
+		fbId uint32
+		possibleCrtcs uint32
+		gammaSize uint32
+		countFormatTypes uint32
+		formatTypePtr uint64
+	}
+
+	sysSetPlane struct {
+		planeId  uint32
+		crtcId uint32
+		fbId uint32
+		flags uint32
+		crtcX int32
+		crtcY int32
+		crtcW uint32
+		crtcH uint32
+		srcX uint32
+		srcY uint32
+		srcH uint32
+		srcW uint32
+	}
+
 	Info struct {
 		Clock                                         uint32
 		Hdisplay, HsyncStart, HsyncEnd, Htotal, Hskew uint16
@@ -111,6 +141,23 @@ type (
 
 		PossibleCrtcs  uint32
 		PossibleClones uint32
+	}
+
+	PlaneResources struct {
+		sysGetPlaneResources
+
+		Planes        []uint32
+	}
+
+	Plane struct {
+		sysGetPlane
+
+		ID        uint32
+		CrtcID        uint32
+		FbID        uint32
+		PossibleCrtcs  uint32
+		GammaSize  uint32
+		FormatTypes  []uint32
 	}
 
 	sysCreateDumb struct {
@@ -241,6 +288,18 @@ var (
 	// DRM_IOWR(0xB4, struct drm_mode_destroy_dumb)
 	IOCTLModeDestroyDumb = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysDestroyDumb{})), drm.IOCTLBase, 0xB4)
+
+	// DRM_IOWR(0xB5, struct drm_mode_get_plane_res)
+	IOCTLModeGetPlaneResources = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysGetPlaneResources{})), drm.IOCTLBase, 0xB5)
+
+	// DRM_IOWR(0xB6, struct drm_mode_get_plane)
+	IOCTLModeGetPlane = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysGetPlane{})), drm.IOCTLBase, 0xB6)
+
+	// DRM_IOWR(0xB7, struct drm_mode_set_plane)
+	IOCTLModeSetPlane = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysSetPlane{})), drm.IOCTLBase, 0xB7)
 )
 
 func GetResources(file *os.File) (*Resources, error) {
@@ -375,6 +434,89 @@ func GetEncoder(file *os.File, id uint32) (*Encoder, error) {
 	}, nil
 }
 
+func GetPlaneResources(file *os.File) (*PlaneResources, error) {
+	mPlaneRes := &sysGetPlaneResources{}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetPlaneResources),
+		uintptr(unsafe.Pointer(mPlaneRes)))
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		planeIds []uint32
+	)
+
+	if mPlaneRes.countPlanes > 0 {
+		planeIds = make([]uint32, mPlaneRes.countPlanes)
+		mPlaneRes.planeIdPtr = uint64(uintptr(unsafe.Pointer(&planeIds[0])))
+	}
+
+	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetPlaneResources),
+		uintptr(unsafe.Pointer(mPlaneRes)))
+	if err != nil {
+		return nil, err
+	}
+
+	return &PlaneResources{
+		sysGetPlaneResources: *mPlaneRes,
+		Planes:   planeIds,
+	}, nil
+}
+
+func GetPlane(file *os.File, id uint32) (*Plane, error) {
+	mPlaneRes := &sysGetPlane{planeId: id}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetPlane),
+		uintptr(unsafe.Pointer(mPlaneRes)))
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		formatTypes []uint32
+	)
+
+	if mPlaneRes.countFormatTypes > 0 {
+		formatTypes = make([]uint32, mPlaneRes.countFormatTypes)
+		mPlaneRes.formatTypePtr = uint64(uintptr(unsafe.Pointer(&formatTypes[0])))
+	}
+
+	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetPlane),
+		uintptr(unsafe.Pointer(mPlaneRes)))
+	if err != nil {
+		return nil, err
+	}
+
+	return &Plane{
+		sysGetPlane: *mPlaneRes,
+		ID: mPlaneRes.planeId,
+		CrtcID: mPlaneRes.crtcId,
+		FbID: mPlaneRes.fbId,
+		PossibleCrtcs: mPlaneRes.possibleCrtcs,
+		GammaSize: mPlaneRes.gammaSize,
+		FormatTypes:   formatTypes,
+	}, nil
+}
+
+func SetPlane(file *os.File, planeId, crtcId, fbId uint32, flags uint32, crtcX, crtcY int32, crtcW, crtcH, srcX, srcY, srcH, srcW uint32) error {
+	mPlaneRes := &sysSetPlane{
+		planeId: planeId,
+		crtcId: crtcId,
+		fbId: fbId,
+		flags: flags,
+		crtcX: crtcX,
+		crtcY: crtcY,
+		crtcW: crtcW,
+		crtcH: crtcH,
+		srcX: srcX,
+		srcY: srcY,
+		srcW: srcW,
+		srcH: srcH,
+	}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeSetPlane),
+		uintptr(unsafe.Pointer(mPlaneRes)))
+	return err
+}
+
 func CreateFB(file *os.File, width, height uint16, bpp uint32) (*FB, error) {
 	fb := &sysCreateDumb{}
 	fb.width = uint32(width)
@@ -423,6 +565,25 @@ func AddFB2SinglePlane(file *os.File, width, height uint16,
 	f.pitches[0] = pitch
 	f.offsets[0] = offset
 	f.modifier[0] = modifier
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeAddFB2),
+		uintptr(unsafe.Pointer(f)))
+	if err != nil {
+		return 0, err
+	}
+	return f.fbID, nil
+}
+
+func AddFB2(file *os.File, width, height uint16,
+	pixelFormat uint32, flags uint32, pitches, offsets, boHandles []uint32, modifier []uint64) (uint32, error) {
+	f := &sysFBCmd2{}
+	f.width = uint32(width)
+	f.height = uint32(height)
+	f.pixelFormat = pixelFormat
+	f.flags = flags
+	copy(f.handles[:], boHandles)
+	copy(f.pitches[:], pitches)
+	copy(f.offsets[:], offsets)
+	copy(f.modifier[:], modifier)
 	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeAddFB2),
 		uintptr(unsafe.Pointer(f)))
 	if err != nil {
