@@ -1,6 +1,7 @@
 package mode
 
 import (
+	"bytes"
 	"os"
 	"unsafe"
 
@@ -17,6 +18,21 @@ const (
 	Connected         = 1
 	Disconnected      = 2
 	UnknownConnection = 3
+
+	// deprecated
+	PropPending = 1 << 0
+	// legacy types
+	PropRagen     = 1 << 1
+	PropImmutable = 1 << 2
+	PropEnum      = 1 << 3
+	PropBlob      = 1 << 4
+	PropBitmask   = 1 << 5
+	// extended types
+	PropExtended    = 0x0000ffc0
+	PropObject      = 1 << 6
+	PropSignedrange = 2 << 6
+	// atomic flag
+	PropAtomic = 0x80000000
 )
 
 type (
@@ -93,6 +109,27 @@ type (
 		srcW    uint32
 	}
 
+	sysGetProperty struct {
+		valuesPtr      uint64
+		enumBlobPtr    uint64
+		propId         uint32
+		flags          uint32
+		name           [PropNameLen]uint8
+		countValues    uint32
+		countEnumBlobs uint32
+	}
+
+	sysPropertyEnum struct {
+		value uint64
+		name  [PropNameLen]uint8
+	}
+
+	sysGetBlob struct {
+		blobId uint32
+		length uint32
+		data   uint64
+	}
+
 	Info struct {
 		Clock                                         uint32
 		Hdisplay, HsyncStart, HsyncEnd, Htotal, Hskew uint16
@@ -158,6 +195,24 @@ type (
 		PossibleCrtcs uint32
 		GammaSize     uint32
 		FormatTypes   []uint32
+	}
+
+	Property struct {
+		ID        uint32
+		Values    []uint64
+		EnumBlobs []PropertyEnum
+		Flags     uint32
+		Name      string
+	}
+
+	PropertyEnum struct {
+		Value uint64
+		Name  string
+	}
+
+	Blob struct {
+		ID   uint32
+		Data []byte
 	}
 
 	sysCreateDumb struct {
@@ -300,6 +355,14 @@ var (
 	// DRM_IOWR(0xB7, struct drm_mode_set_plane)
 	IOCTLModeSetPlane = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysSetPlane{})), drm.IOCTLBase, 0xB7)
+
+	// DRM_IOWR(0xAA, struct drm_mode_get_property)
+	IOCTLModeGetProperty = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysGetProperty{})), drm.IOCTLBase, 0xAA)
+
+	// DRM_IOWR(0xAC, struct drm_mode_get_blob)
+	IOCTLModeGetPropBlob = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysGetBlob{})), drm.IOCTLBase, 0xAC)
 )
 
 func GetResources(file *os.File) (*Resources, error) {
@@ -515,6 +578,90 @@ func SetPlane(file *os.File, planeId, crtcId, fbId uint32, flags uint32, crtcX, 
 	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeSetPlane),
 		uintptr(unsafe.Pointer(mPlaneRes)))
 	return err
+}
+
+func GetProperty(file *os.File, id uint32) (*Property, error) {
+	propertyRes := &sysGetProperty{propId: id, countValues: 0, countEnumBlobs: 0}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetProperty),
+		uintptr(unsafe.Pointer(propertyRes)))
+	if err != nil {
+		return nil, err
+	}
+
+	// Create arrays to store the values and enums.
+	var (
+		values    []uint64
+		enumBlobs []sysPropertyEnum
+	)
+
+	if propertyRes.countValues > 0 {
+		values = make([]uint64, propertyRes.countValues)
+		propertyRes.valuesPtr = uint64(uintptr(unsafe.Pointer(&values[0])))
+	}
+
+	if propertyRes.countEnumBlobs > 0 {
+		enumBlobs = make([]sysPropertyEnum, propertyRes.countEnumBlobs)
+		propertyRes.enumBlobPtr = uint64(uintptr(unsafe.Pointer(&enumBlobs[0])))
+	}
+
+	// Repeat the ioctl command to fill the arrays.
+	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetProperty),
+		uintptr(unsafe.Pointer(propertyRes)))
+	if err != nil {
+		return nil, err
+	}
+
+	// Create enum value array for output.
+	enums := make([]PropertyEnum, propertyRes.countEnumBlobs)
+	for i, enumBlob := range enumBlobs {
+		// Name is null termninated, so we remove the trailing 0s.
+		name, _, _ := bytes.Cut(enumBlob.name[:], []byte{0})
+		enums[i] = PropertyEnum{
+			Value: enumBlob.value,
+			Name:  string(name),
+		}
+	}
+
+	// Name is null termninated, so we remove the trailing 0s.
+	name, _, _ := bytes.Cut(propertyRes.name[:], []byte{0})
+	return &Property{
+		ID:        propertyRes.propId,
+		Values:    values,
+		EnumBlobs: enums,
+		Flags:     propertyRes.flags,
+		Name:      string(name),
+	}, nil
+}
+
+func GetBlob(file *os.File, id uint32) (*Blob, error) {
+	propertyBlob := &sysGetBlob{blobId: id, length: 0}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetPropBlob),
+		uintptr(unsafe.Pointer(propertyBlob)))
+	if err != nil {
+		return nil, err
+	}
+
+	// Create array to store the blob data.
+	var (
+		data []uint8
+	)
+
+	if propertyBlob.length > 0 {
+		data = make([]uint8, propertyBlob.length)
+		propertyBlob.data = uint64(uintptr(unsafe.Pointer(&data[0])))
+	}
+
+	// Repeat the ioctl command to fill the array.
+	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeGetPropBlob),
+		uintptr(unsafe.Pointer(propertyBlob)))
+	if err != nil {
+		return nil, err
+	}
+
+	return &Blob{
+		ID:   id,
+		Data: data,
+	}, nil
 }
 
 func CreateFB(file *os.File, width, height uint16, bpp uint32) (*FB, error) {
