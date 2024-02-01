@@ -33,6 +33,24 @@ const (
 	PropSignedrange = 2 << 6
 	// atomic flag
 	PropAtomic = 0x80000000
+
+	// Client Capabilities
+	ClientCapStereo3D            = 1
+	ClientCapUniversalPlanes     = 2
+	ClientCapAtomic              = 3
+	ClientCapAspectRatio         = 4
+	ClientCapWritebackConnectors = 5
+
+	// Object Types
+	ObjectCRTC      = 0xcccccccc
+	ObjectConnector = 0xc0c0c0c0
+	ObjectEncoder   = 0xe0e0e0e0
+	ObjectMode      = 0xdededede
+	ObjectProperty  = 0xb0b0b0b0
+	ObjectFB        = 0xfbfbfbfb
+	ObjectBLOB      = 0xbbbbbbbb
+	ObjectPlane     = 0xeeeeeeee
+	ObjectAny       = 0
 )
 
 type (
@@ -130,6 +148,19 @@ type (
 		data   uint64
 	}
 
+	sysSetClientCap struct {
+		capability uint64
+		value      uint64
+	}
+
+	sysObjGetProperties struct {
+		propsPtr      uint64
+		propValuesPtr uint64
+		countProps    uint32
+		objID         uint32
+		objType       uint32
+	}
+
 	Info struct {
 		Clock                                         uint32
 		Hdisplay, HsyncStart, HsyncEnd, Htotal, Hskew uint16
@@ -213,6 +244,14 @@ type (
 	Blob struct {
 		ID   uint32
 		Data []byte
+	}
+
+	Properties struct {
+		ObjectID   uint32
+		ObjectType uint32
+
+		Props      []uint32
+		PropValues []uint64
 	}
 
 	sysCreateDumb struct {
@@ -363,6 +402,14 @@ var (
 	// DRM_IOWR(0xAC, struct drm_mode_get_blob)
 	IOCTLModeGetPropBlob = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysGetBlob{})), drm.IOCTLBase, 0xAC)
+
+	// DRM_IOW(0x0D, struct drm_set_client_cap)
+	IOCTLSetClientCap = ioctl.NewCode(ioctl.Write,
+		uint16(unsafe.Sizeof(sysSetClientCap{})), drm.IOCTLBase, 0x0D)
+
+	// DRM_IOWR(0xB9, struct drm_mode_obj_get_properties)
+	IOCTLModeObjGetProperties = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysObjGetProperties{})), drm.IOCTLBase, 0xB9)
 )
 
 func GetResources(file *os.File) (*Resources, error) {
@@ -662,6 +709,58 @@ func GetBlob(file *os.File, id uint32) (*Blob, error) {
 		ID:   id,
 		Data: data,
 	}, nil
+}
+
+func SetClientCap(file *os.File, capability, value uint64) error {
+	setClientCap := &sysSetClientCap{
+		capability: capability,
+		value:      value,
+	}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLSetClientCap),
+		uintptr(unsafe.Pointer(setClientCap)))
+	return err
+}
+
+func GetProperties(file *os.File, objectID uint32, objectType uint32) (*Properties, error) {
+	objGetProperties := &sysObjGetProperties{}
+	objGetProperties.objID = objectID
+	objGetProperties.objType = objectType
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeObjGetProperties),
+		uintptr(unsafe.Pointer(objGetProperties)))
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		props      []uint32
+		propValues []uint64
+	)
+
+	if objGetProperties.countProps > 0 {
+		props = make([]uint32, objGetProperties.countProps)
+		objGetProperties.propsPtr = uint64(uintptr(unsafe.Pointer(&props[0])))
+
+		propValues = make([]uint64, objGetProperties.countProps)
+		objGetProperties.propValuesPtr = uint64(uintptr(unsafe.Pointer(&propValues[0])))
+	}
+
+	err = ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeObjGetProperties),
+		uintptr(unsafe.Pointer(objGetProperties)))
+	if err != nil {
+		return nil, err
+	}
+
+	ret := &Properties{
+		ObjectID:   objectID,
+		ObjectType: objectType,
+	}
+
+	ret.Props = make([]uint32, len(props))
+	copy(ret.Props, props)
+	ret.PropValues = make([]uint64, len(propValues))
+	copy(ret.PropValues, propValues)
+
+	return ret, nil
 }
 
 func CreateFB(file *os.File, width, height uint16, bpp uint32) (*FB, error) {
