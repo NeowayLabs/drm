@@ -3,6 +3,7 @@ package mode
 import (
 	"bytes"
 	"os"
+	"slices"
 	"unsafe"
 
 	"github.com/NeowayLabs/drm"
@@ -51,6 +52,13 @@ const (
 	ObjectBLOB      = 0xbbbbbbbb
 	ObjectPlane     = 0xeeeeeeee
 	ObjectAny       = 0
+
+	// Atomic Flags
+	PageFlipEvent      = 0x01
+	PageFlipAsync      = 0x02
+	AtomicTestOnly     = 0x0100
+	AtomicNonBlock     = 0x0200
+	AtomicAllowModeSet = 0x0400
 )
 
 type (
@@ -143,9 +151,19 @@ type (
 	}
 
 	sysGetBlob struct {
-		blobId uint32
-		length uint32
 		data   uint64
+		length uint32
+		blobId uint32
+	}
+
+	sysCreateBlob struct {
+		data   uint64
+		length uint32
+		blobId uint32
+	}
+
+	sysDestroyBlob struct {
+		blobId uint32
 	}
 
 	sysSetClientCap struct {
@@ -159,6 +177,17 @@ type (
 		countProps    uint32
 		objID         uint32
 		objType       uint32
+	}
+
+	sysAtomic struct {
+		flags         uint32
+		countObjs     uint32
+		objsPtr       uint64
+		countPropsPtr uint64
+		propsPtr      uint64
+		propValuesPtr uint64
+		reserved      uint64
+		userData      uint64
 	}
 
 	Info struct {
@@ -252,6 +281,12 @@ type (
 
 		Props      []uint32
 		PropValues []uint64
+	}
+
+	AtomicProperty struct {
+		ObjectID   uint32
+		PropertyID uint32
+		Value      uint64
 	}
 
 	sysCreateDumb struct {
@@ -410,6 +445,18 @@ var (
 	// DRM_IOWR(0xB9, struct drm_mode_obj_get_properties)
 	IOCTLModeObjGetProperties = ioctl.NewCode(ioctl.Read|ioctl.Write,
 		uint16(unsafe.Sizeof(sysObjGetProperties{})), drm.IOCTLBase, 0xB9)
+
+	// DRM_IOWR(0xBC, struct drm_mode_atomic)
+	IOCTLModeAtomic = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysAtomic{})), drm.IOCTLBase, 0xBC)
+
+	// DRM_IOWR(0xBD, struct drm_mode_create_blob)
+	IOCTLModeCreateBlob = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysCreateBlob{})), drm.IOCTLBase, 0xBD)
+
+	// DRM_IOWR(0xBE, struct drm_mode_destroy_blob)
+	IOCTLModeDestroyBlob = ioctl.NewCode(ioctl.Read|ioctl.Write,
+		uint16(unsafe.Sizeof(sysDestroyBlob{})), drm.IOCTLBase, 0xBE)
 )
 
 func GetResources(file *os.File) (*Resources, error) {
@@ -711,6 +758,40 @@ func GetBlob(file *os.File, id uint32) (*Blob, error) {
 	}, nil
 }
 
+func CreateBlob(file *os.File, data []uint8) (uint32, error) {
+	createBlob := &sysCreateBlob{
+		data:   uint64(uintptr(unsafe.Pointer(&data[0]))),
+		length: uint32(len(data)),
+	}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeCreateBlob),
+		uintptr(unsafe.Pointer(createBlob)))
+	if err != nil {
+		return 0, err
+	}
+	return createBlob.blobId, nil
+}
+
+func CreateInfoBlob(file *os.File, info Info) (uint32, error) {
+	createBlob := &sysCreateBlob{
+		data:   uint64(uintptr(unsafe.Pointer(&info))),
+		length: uint32(unsafe.Sizeof(info)),
+	}
+	err := ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeCreateBlob),
+		uintptr(unsafe.Pointer(createBlob)))
+	if err != nil {
+		return 0, err
+	}
+	return createBlob.blobId, nil
+}
+
+func DestroyBlob(file *os.File, id uint32) error {
+	destroyBlob := &sysDestroyBlob{
+		blobId: id,
+	}
+	return ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeDestroyBlob),
+		uintptr(unsafe.Pointer(destroyBlob)))
+}
+
 func SetClientCap(file *os.File, capability, value uint64) error {
 	setClientCap := &sysSetClientCap{
 		capability: capability,
@@ -761,6 +842,66 @@ func GetProperties(file *os.File, objectID uint32, objectType uint32) (*Properti
 	copy(ret.PropValues, propValues)
 
 	return ret, nil
+}
+
+func Atomic(file *os.File, flags uint32, atomicProperties []AtomicProperty) error {
+	// There is nothing to do if no properties are specified.
+	if len(atomicProperties) == 0 {
+		return nil
+	}
+
+	// Sort the properties in the input according to the object id.
+	properties := make([]AtomicProperty, len(atomicProperties))
+	copy(properties, atomicProperties)
+	slices.SortFunc[[]AtomicProperty](properties, func(a, b AtomicProperty) int {
+		if a.ObjectID < b.ObjectID {
+			return -1
+		} else if a.ObjectID == b.ObjectID {
+			return 0
+		} else {
+			return 1
+		}
+	})
+
+	// Create individual arrays required by the syscall structure.
+	objs := make([]uint32, len(atomicProperties))
+	countProps := make([]uint32, len(atomicProperties))
+	props := make([]uint32, len(atomicProperties))
+	propValues := make([]uint64, len(atomicProperties))
+	// Set the first object ID.
+	objsIndex := 0
+	objs[0] = properties[0].ObjectID
+	curObj := objs[0]
+	countPropsObj := uint32(0)
+	for i, property := range properties {
+		if property.ObjectID != curObj {
+			// Set the number of properties for the current object.
+			countProps[objsIndex] = countPropsObj
+			// Advance to the next object.
+			countPropsObj = 0
+			objsIndex++
+			objs[objsIndex] = property.ObjectID
+		}
+		// Set the property id and value.
+		props[i] = property.PropertyID
+		propValues[i] = property.Value
+		// Increase the number of properties for the object.
+		countPropsObj++
+	}
+	// Set the property count for the last object.
+	countProps[objsIndex] = countPropsObj
+
+	// Assemble atomic request.
+	sysAtomic := &sysAtomic{
+		flags:         flags,
+		countObjs:     uint32(objsIndex) + 1,
+		objsPtr:       uint64(uintptr(unsafe.Pointer(&objs[0]))),
+		countPropsPtr: uint64(uintptr(unsafe.Pointer(&countProps[0]))),
+		propValuesPtr: uint64(uintptr(unsafe.Pointer(&propValues[0]))),
+		propsPtr:      uint64(uintptr(unsafe.Pointer(&props[0]))),
+	}
+	return ioctl.Do(uintptr(file.Fd()), uintptr(IOCTLModeAtomic),
+		uintptr(unsafe.Pointer(sysAtomic)))
 }
 
 func CreateFB(file *os.File, width, height uint16, bpp uint32) (*FB, error) {
